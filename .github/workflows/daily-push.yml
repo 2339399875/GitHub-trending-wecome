@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-      LANGUAGE: 'python'
+      LANGUAGE: ''
       LIMIT: 10
     steps:
       - name: 从GitHub官方搜索获取热门项目
@@ -31,7 +31,12 @@ jobs:
           if echo "$RAW" | jq -e '.items' >/dev/null 2>&1; then
             MESSAGE=$(echo "$RAW" | jq -r '
               .items | to_entries | map(
-                "### \(.key+1). [\(.value.full_name)](\(.value.html_url))\n⭐ Stars: \(.value.stargazers_count) | 📝 \(.value.description // "暂无描述")\n"
+                "### \(.key+1). [\(.value.full_name)](\(.value.html_url))\n" +
+                "📌 语言：\(.value.language // "未标注") | ⭐ Star：\(.value.stargazers_count) | 🍴 Fork：\(.value.forks_count)\n" +
+                "🕒 最后更新：\(.value.updated_at[0:10])\n" +
+                (if (.value.topics | length) > 0 then "🏷️ 标签：\(.value.topics | join(", "))\n" else "" end) +
+                "📝 \(.value.description // "暂无项目描述")\n" +
+                (if .value.homepage and .value.homepage != "" then "🔗 项目主页：\(.value.homepage)\n" else "" end)
               ) | join("\n")
             ')
             FULL_CONTENT="## 📰 GitHub 每日热门项目\n\n$MESSAGE"
