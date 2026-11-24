@@ -10,43 +10,31 @@ jobs:
     env:
       WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
       LANGUAGE: 'python'
-      SINCE: 'daily'
       LIMIT: 10
     steps:
-      - name: 抓取Trending（带重试）
+      - name: 从GitHub官方搜索获取热门项目
         run: |
-          # 重试3次
-          RAW=""
-          for i in {1..3}; do
-            echo "第 $i 次尝试拉取数据..."
-            if [ -z "$LANGUAGE" ]; then
-              API_URL="https://ghapi.huchen.dev/repositories?since=$SINCE"
-            else
-              API_URL="https://ghapi.huchen.dev/repositories?language=$LANGUAGE&since=$SINCE"
-            fi
-            RAW=$(curl -s --connect-timeout 8 --max-time 15 "$API_URL")
-            # 判断是否是合法数组json
-            if echo "$RAW" | jq -e 'type=="array"' >/dev/null 2>&1; then
-              echo "✅ 拉取成功"
-              break
-            fi
-            echo "❌ 本次失败，等待2秒重试"
-            sleep 2
-          done
+          # 构造搜索语句，默认看今日star暴涨项目，替代trending
+          if [ -z "$LANGUAGE" ]; then
+            QUERY="stars:>1000 created:2026-11-23..* sort:stars-desc"
+          else
+            QUERY="stars:>1000 language:$LANGUAGE created:2026-11-23..* sort:stars-desc"
+          fi
 
-          # 处理消息
-          if echo "$RAW" | jq -e 'type=="array"' >/dev/null 2>&1; then
-            MESSAGE=$(echo "$RAW" | jq -r --argjson limit "$LIMIT" '
-              .[0:$limit] | to_entries | map(
-                "### \(.key+1). [\(.value.name)](\(.value.url))\n⭐ Stars: \(.value.stars) | 📝 \(.value.description // "暂无描述")\n"
+          # 调用GitHub官方api
+          RAW=$(curl -s -H "Accept: application/vnd.github.v3+json" "https://api.github.com/search/repositories?q=$QUERY&per_page=$LIMIT")
+
+          if echo "$RAW" | jq -e '.items' >/dev/null 2>&1; then
+            MESSAGE=$(echo "$RAW" | jq -r '
+              .items | to_entries | map(
+                "### \(.key+1). [\(.value.full_name)](\(.value.html_url))\n⭐ Stars: \(.value.stargazers_count) | 📝 \(.value.description // "暂无描述")\n"
               ) | join("\n")
             ')
             FULL_CONTENT="## 📰 GitHub 每日热门项目\n\n$MESSAGE"
           else
-            FULL_CONTENT="## 📰 GitHub 每日热门项目\n\n⚠️ 连续3次拉取Trending数据失败，接口超时，稍后再试\n关键词：GitHub"
+            FULL_CONTENT="## 📰 GitHub 每日热门项目\n\n⚠️  获取项目数据失败\n关键词：GitHub"
           fi
 
-          # 推送到企业微信
           curl -s -X POST "$WECOM_WEBHOOK" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg c "$FULL_CONTENT" '{"msgtype":"markdown","markdown":{"content":$c}}')"
