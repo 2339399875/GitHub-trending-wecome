@@ -1,0 +1,50 @@
+name: 每日 GitHub Trending 推送到企业微信
+
+# 触发方式：定时触发 + 手动触发
+on:
+  schedule:
+    # UTC 时间 1:00 = 北京时间 9:00，可按需修改
+    - cron: '0 1 * * *'
+  workflow_dispatch:  # 允许在页面手动触发测试
+
+jobs:
+  push-to-wecom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 抓取热门项目并推送
+        env:
+          # 企业微信 Webhook，从 Secrets 中读取
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          # 编程语言筛选：留空=全站，可填 python/javascript/go/java/rust 等
+          LANGUAGE: ''
+          # 榜单周期：daily=今日 / weekly=本周 / monthly=本月
+          PERIOD: 'daily'
+          # 推送项目数量：默认前 10 个
+          LIMIT: 10
+        run: |
+          # 1. 拼接请求地址
+          if [ -z "$LANGUAGE" ]; then
+            API_URL="https://rsshub.app/github/trending/$PERIOD?format=json"
+          else
+            API_URL="https://rsshub.app/github/trending/$PERIOD/$LANGUAGE?format=json"
+          fi
+
+          # 2. 拉取数据并拼接 Markdown 消息
+          MESSAGE=$(curl -s "$API_URL" | jq -r --argjson limit "$LIMIT" '
+            .items | .[0:$limit] | to_entries | map(
+              "### \(.key+1). [\(.value.title)](\(.value.link))\n\(.value.description // "暂无项目描述")\n"
+            ) | join("\n")
+          ')
+
+          # 3. 拼接完整消息标题（包含关键词 GitHub，满足企业微信安全校验）
+          FULL_CONTENT="## 📰 GitHub 每日热门项目\n\n$MESSAGE"
+
+          # 4. 发送到企业微信群
+          curl -s -X POST "$WECOM_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"msgtype\": \"markdown\",
+              \"markdown\": {
+                \"content\": \"${FULL_CONTENT//\"/\\\"}\"
+              }
+            }"
