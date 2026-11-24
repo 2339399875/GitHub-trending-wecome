@@ -14,15 +14,19 @@ jobs:
     steps:
       - name: 从GitHub官方搜索获取热门项目
         run: |
-          # 构造搜索语句，默认看今日star暴涨项目，替代trending
+          # 构造搜索词
           if [ -z "$LANGUAGE" ]; then
-            QUERY="stars:>1000 created:2026-11-23..* sort:stars-desc"
+            QUERY="stars:>1000 created:>2026-01-01 sort:stars-desc"
           else
-            QUERY="stars:>1000 language:$LANGUAGE created:2026-11-23..* sort:stars-desc"
+            QUERY="stars:>1000 language:$LANGUAGE created:>2026-01-01 sort:stars-desc"
           fi
 
-          # 调用GitHub官方api
-          RAW=$(curl -s -H "Accept: application/vnd.github.v3+json" "https://api.github.com/search/repositories?q=$QUERY&per_page=$LIMIT")
+          # -G 自动url编码，解决空格&特殊字符截断问题
+          RAW=$(curl -s -G \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/search/repositories" \
+            --data-urlencode "q=$QUERY" \
+            --data-urlencode "per_page=$LIMIT")
 
           if echo "$RAW" | jq -e '.items' >/dev/null 2>&1; then
             MESSAGE=$(echo "$RAW" | jq -r '
